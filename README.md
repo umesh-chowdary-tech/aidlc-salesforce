@@ -69,6 +69,12 @@ the deployment.
      Assignments and add the users; or
    - run `sf org assign permset --name Lead_Scoring_User --target-org my-org`
      (add `--on-behalf-of <username>` to assign it to someone else).
+2. Add the Lead Score Breakdown component to the Lead record page:
+   1. Open any Lead, click the gear icon, then **Edit Page**.
+   2. In Lightning App Builder, find **Lead Score Breakdown** under Custom
+      components and drag it onto the page (the right-hand column works well).
+   3. Click **Save**. If the page is not yet active, click **Activation** and
+      assign it as the org default (or to the apps and profiles you want).
 
 ## What is in the kit
 

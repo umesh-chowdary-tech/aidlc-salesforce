@@ -1,0 +1,52 @@
+<template>
+  <lightning-card title="Lead Score" icon-name="standard:lead">
+    <div class="slds-var-p-horizontal_medium">
+      <template lwc:if={error}>
+        <p class="slds-text-color_error" role="alert" data-id="error">
+          {errorText}
+        </p>
+      </template>
+      <template lwc:elseif={isLoading}>
+        <div class="slds-is-relative slds-var-p-vertical_large">
+          <lightning-spinner
+            alternative-text="Loading the lead score"
+            size="small"
+          ></lightning-spinner>
+        </div>
+      </template>
+      <template lwc:else>
+        <p class="slds-text-heading_large" data-id="total">{totalText}</p>
+        <template lwc:if={isOutOfDate}>
+          <p
+            class="slds-text-body_small slds-text-color_weak slds-var-m-top_x-small"
+            data-id="out-of-date"
+          >
+            The scoring rules have changed since this Lead was last saved. Save
+            the Lead to update its score.
+          </p>
+        </template>
+        <template lwc:if={hasRows}>
+          <ul class="slds-var-m-top_small">
+            <template for:each={rows} for:item="row">
+              <li
+                key={row.key}
+                class="slds-grid slds-grid_align-spread slds-var-p-vertical_xx-small"
+                data-id="rule"
+              >
+                <span>{row.label}</span>
+                <span class="slds-text-font_monospace" data-id="points"
+                  >{row.pointsText}</span
+                >
+              </li>
+            </template>
+          </ul>
+        </template>
+        <template lwc:else>
+          <p class="slds-var-m-top_small slds-text-color_weak" data-id="empty">
+            No scoring rules matched this Lead.
+          </p>
+        </template>
+      </template>
+    </div>
+  </lightning-card>
+</template>
