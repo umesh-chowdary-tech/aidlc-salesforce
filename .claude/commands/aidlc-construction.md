@@ -94,8 +94,8 @@ Stop and wait for the human.
 ### On unit approval
 
 Append `## <ISO timestamp> unit-approval <unit-slug>` and the human's words
-to `aidlc-docs/audit.md`. In `aidlc-docs/state.md`: add the slug under
-"Approved units", set `pending_gate: none`, `unit: -`, and `next_step` to
+to `aidlc-docs/audit.md`. In `aidlc-docs/state.md`: add the line
+`- <unit-slug>` under "Approved units", set `pending_gate: none`, `unit: -`, and `next_step` to
 the next unit's command, or to `Run /aidlc-operations.` if every unit is
 approved.
 

@@ -39,6 +39,15 @@ A gate is a point where work stops for human approval:
 - If a command is run while a different gate is pending, refuse, name the
   pending gate, and stop.
 
+## Automatic mode
+
+`npm run aidlc -- --auto "<intent>"` runs every phase without stopping. The
+human opts in by passing `--auto`. In this mode only, the runner supplies
+each approval; record it in the audit log with the event marked `(auto)` so
+it is never mistaken for a person's review. Open questions are answered with
+the simplest reasonable assumption, written as `Assumed (auto mode): ...`.
+The runner still runs the tests and lint itself before a unit is approved.
+
 ## Questions
 
 When information is missing, do not guess. Write the questions to the

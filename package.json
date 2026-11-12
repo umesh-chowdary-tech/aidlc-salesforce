@@ -8,7 +8,9 @@
     "test": "npm run test:unit",
     "test:unit": "sfdx-lwc-jest -- --passWithNoTests",
     "check:kit": "node scripts/check-kit.js",
-    "prettier": "prettier --write \"force-app/**/*.{cls,css,html,js,trigger,xml}\""
+    "prettier": "prettier --write \"force-app/**/*.{cls,css,html,js,trigger,xml}\"",
+    "aidlc": "node scripts/aidlc-run.js",
+    "test:runner": "node scripts/test-runner.js"
   },
   "devDependencies": {
     "@lwc/eslint-plugin-lwc": "^3.1.0",

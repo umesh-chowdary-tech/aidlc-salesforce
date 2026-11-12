@@ -19,9 +19,35 @@ a written trail from the original intent to the deployed feature.
 - For Operations: a Salesforce org you are allowed to deploy to, authorised
   in the CLI (`sf org login web --alias my-org`)
 
-## Using the kit
+## Quick start: one command
 
-Open the project in Claude Code and run the phases in order.
+Authorise an org once, then give the runner an intent:
+
+```bash
+sf org login web --alias my-org
+```
+
+```bash
+npm run aidlc -- --auto --org my-org "Score each Lead from 0 to 100 using configurable rules, and show sales reps why a Lead has its score."
+```
+
+The runner calls the Claude CLI for each phase: it writes the stories and
+units, designs and builds each unit with tests, runs the Jest tests and lint
+itself, then validates, deploys and runs the Apex tests in the org. Every
+artifact lands in `aidlc-docs/`.
+
+| Option | Effect |
+|---|---|
+| `--auto` | Approve every gate automatically. The audit log marks these `(auto)`. Leave it out and the runner asks you at each gate. |
+| `--org <alias>` | Deploy to this org. Leave it out and the run stops after Construction; run again with `--org` to deploy. |
+| `--reset` | Delete the previous run's artifacts and everything under `force-app/main/default` first. |
+
+The run can be stopped at any time. Run the command again and it resumes
+from `aidlc-docs/state.md`.
+
+## Step by step in Claude Code
+
+You can also run the phases yourself inside Claude Code.
 
 | Step | Command | You approve |
 |---|---|---|
@@ -30,11 +56,7 @@ Open the project in Claude Code and run the phases in order.
 | 3 | `/aidlc-operations <org alias>` | The deployment, after a validation run |
 
 At each gate Claude stops and tells you which files to review. Reply with
-your approval or the changes you want. If Claude needs information it writes
-questions to a `questions.md` file; answer them in the file.
-
-`aidlc-docs/state.md` always shows the current phase, the pending gate and
-the next step, so you can stop and resume in a later session.
+your approval or the changes you want.
 
 ## What is in the kit
 
@@ -44,11 +66,13 @@ the next step, so you can stop and resume in a later session.
 | `.claude/commands/` | The three phase commands |
 | `aidlc/salesforce-rules.md` | Nine Salesforce guardrails every design and class must follow |
 | `aidlc/templates/` | Templates for each artifact |
+| `scripts/aidlc-run.js` | The runner behind `npm run aidlc` |
 | `scripts/check-kit.js` | Structural check of the kit: `npm run check:kit` |
+| `scripts/test-runner.js` | Runner control-flow tests with a fake CLI: `npm run test:runner` |
 
 ## Using the kit in another project
 
-Copy `CLAUDE.md`, `.claude/commands/` and `aidlc/` into an SFDX project, and
+Copy `CLAUDE.md`, `.claude/commands/`, `aidlc/` and `scripts/aidlc-run.js` into an SFDX project, and
 create `aidlc-docs/state.md` and `aidlc-docs/audit.md` from the copies here
 (reset `state.md` to `phase: not-started`). `aidlc-docs/` and `force-app/`
 belong to each project.
