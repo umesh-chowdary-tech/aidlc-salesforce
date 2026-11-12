@@ -69,6 +69,13 @@ the deployment.
      Assignments and add the users; or
    - run `sf org assign permset --name Lead_Scoring_User --target-org my-org`
      (add `--on-behalf-of <username>` to assign it to someone else).
+2. Add the "Lead Score Breakdown" component to the Lead record page. In
+   Setup, go to Object Manager > Lead > Lightning Record Pages and open the
+   page your reps use (or open any Lead and choose Setup > Edit Page). Drag
+   "Lead Score Breakdown" from the Custom components list onto the page,
+   save, and activate the page if it is not already active. A rep without
+   the `Lead_Scoring_User` permission set sees an error message in the
+   component instead of the breakdown.
 
 ## What is in the kit
 

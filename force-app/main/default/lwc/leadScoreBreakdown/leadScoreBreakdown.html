@@ -1,0 +1,51 @@
+<template>
+  <lightning-card title="Lead Score" icon-name="standard:lead">
+    <div class="slds-var-p-horizontal_medium">
+      <template lwc:if={isLoading}>
+        <div class="slds-is-relative slds-var-p-vertical_large">
+          <lightning-spinner
+            alternative-text="Loading score"
+            size="small"
+          ></lightning-spinner>
+        </div>
+      </template>
+      <template lwc:elseif={hasError}>
+        <div role="alert">
+          <p class="slds-text-color_error" data-id="error">
+            The score breakdown could not be loaded.
+          </p>
+          <template lwc:if={errorDetail}>
+            <p
+              class="slds-text-body_small slds-var-m-top_xx-small"
+              data-id="error-detail"
+            >
+              {errorDetail}
+            </p>
+          </template>
+        </div>
+      </template>
+      <template lwc:else>
+        <p class="slds-text-heading_large" data-id="total">{total}</p>
+        <template lwc:if={hasLines}>
+          <ul class="slds-has-dividers_bottom-space slds-var-m-top_small">
+            <template for:each={lines} for:item="line">
+              <li
+                key={line.key}
+                class="slds-item slds-grid slds-grid_align-spread"
+                data-id="rule"
+              >
+                <span>{line.label}</span>
+                <span>{line.points}</span>
+              </li>
+            </template>
+          </ul>
+        </template>
+        <template lwc:else>
+          <p class="slds-var-m-top_small" data-id="empty">
+            No scoring rules matched this Lead.
+          </p>
+        </template>
+      </template>
+    </div>
+  </lightning-card>
+</template>
