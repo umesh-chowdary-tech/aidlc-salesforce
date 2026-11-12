@@ -149,6 +149,43 @@ function readRequirement(root) {
     return paragraph.replace(/\s+/g, ' ').trim();
 }
 
+// Sets keys in aidlc-docs/state.md ({ phase, unit, pending_gate, next_step })
+// and optionally adds a unit under "Approved units".
+function updateState(root, fields, approveUnit) {
+    const file = path.join(root, 'aidlc-docs', 'state.md');
+    let text = fs.readFileSync(file, 'utf8');
+    for (const [key, value] of Object.entries(fields)) {
+        const re = new RegExp(`^${key}:.*$`, 'm');
+        text = re.test(text) ? text.replace(re, `${key}: ${value}`) : text;
+    }
+    if (approveUnit && !readState(root).approved.includes(approveUnit)) {
+        text = `${text.replace(/\s*$/, '')}\n- ${approveUnit}\n`;
+    }
+    fs.writeFileSync(file, text);
+}
+
+// Appends one agent session's token use to aidlc-docs/usage.md.
+function appendUsage(root, label, u) {
+    const file = path.join(root, 'aidlc-docs', 'usage.md');
+    if (!fs.existsSync(file)) {
+        fs.writeFileSync(
+            file,
+            '# Agent usage\n\nOne row per Claude session the runner started. "Cache read" tokens are\n' +
+                're-used context and cost far less than new input. Cost is what the Claude\n' +
+                'CLI reports at API prices; on a subscription it counts toward your limits\n' +
+                'instead of being billed.\n\n' +
+                '| Time | Step | Turns | Input | Cache write | Cache read | Output | Cost (USD) |\n' +
+                '|---|---|---|---|---|---|---|---|\n'
+        );
+    }
+    const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const n = (v) => (Number.isFinite(v) ? v : 0);
+    fs.appendFileSync(
+        file,
+        `| ${stamp} | ${label.replace(/\|/g, '/')} | ${n(u.turns)} | ${n(u.input)} | ${n(u.cacheWrite)} | ${n(u.cacheRead)} | ${n(u.output)} | ${n(u.cost).toFixed(4)} |\n`
+    );
+}
+
 function appendAudit(root, event, words) {
     const file = path.join(root, 'aidlc-docs', 'audit.md');
     const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -165,5 +202,7 @@ module.exports = {
     writeAnswers,
     readChecklist,
     readRequirement,
+    updateState,
+    appendUsage,
     appendAudit
 };

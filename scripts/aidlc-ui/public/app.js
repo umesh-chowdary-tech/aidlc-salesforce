@@ -169,6 +169,22 @@
         orgBadge.title = s.org.username || '';
     }
 
+    function tokens(n) {
+        return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+    }
+
+    function renderUsage(s) {
+        const el = document.getElementById('usage');
+        const u = s.usage;
+        el.hidden = !(u && u.sessions);
+        if (el.hidden) return;
+        el.textContent =
+            `This run so far: ${u.sessions} agent session${u.sessions === 1 ? '' : 's'}, ` +
+            `${tokens(u.input + u.cacheWrite)} new tokens, ${tokens(u.cacheRead)} re-used, ${tokens(u.output)} written` +
+            (u.cost ? `, about $${u.cost.toFixed(2)} at API prices.` : '.');
+        el.title = 'Every session is listed in aidlc-docs/usage.md.';
+    }
+
     function renderRequirement(s) {
         const box = document.getElementById('requirement');
         box.hidden = !s.requirement;
@@ -520,6 +536,7 @@
         renderSteps(s);
         renderOrgBadge(s);
         renderRequirement(s);
+        renderUsage(s);
         renderDocuments(s);
         const key = viewKey(s);
         if (!force && key === currentView) {

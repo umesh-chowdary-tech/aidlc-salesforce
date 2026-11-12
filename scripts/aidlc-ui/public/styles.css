@@ -268,3 +268,5 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
     overflow-y: auto;
 }
 blockquote.big { font-size: 1rem; max-height: none; margin: 0.75rem 0 1rem; }
+
+.usage { margin: 0; font-size: 0.8rem; color: var(--muted); }

@@ -42,13 +42,13 @@ A gate is a point where work stops for human approval:
 ## Runner modes
 
 The runner (`npm run aidlc`, or the page from `npm run aidlc:ui`) approves only
-in modes a human opted into; mark each such audit event `(auto)`.
-
+in modes a human opted into, marking each audit event `(auto)`:
 - `--auto`: every gate; questions get `Assumed (auto mode): <answer>`.
 - `--guided` (the browser page): design and unit gates only. The person
   answers questions, approves the stories and the deploy, and checks the
   result in the org. Write everything they read in plain language.
-- Either way, the runner's own tests and lint must pass before unit approval.
+- Either way, its own tests and lint must pass before unit approval, and it
+  may tell you to design and build a unit in one session.
 
 ## Questions
 

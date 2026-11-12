@@ -61,6 +61,32 @@ it). To allow production orgs, which is not recommended, start it with
 The page is served on `127.0.0.1` only and every request needs a token that
 is embedded in the page, so other web sites cannot use it.
 
+## Token use
+
+Each step of a run is a separate Claude session, and each session reads the
+kit's rules, the current documents and the relevant source before it works.
+That reading is most of the tokens. To keep it down, the runner:
+
+- records plain approvals itself (the user stories, each built unit) instead
+  of starting a session to write one line in the audit log;
+- has the agent design and build a unit in one session when the design gate
+  is approved automatically (`--auto` and the guided page);
+- logs every session to `aidlc-docs/usage.md` (turns, new input, cache
+  writes, cache reads, output, cost at API prices), shows a running total on
+  the guided page, and prints a summary at the end in the terminal.
+
+A three-unit feature takes about five sessions in guided or automatic mode:
+one for Inception, one per unit, and two for Operations. Fix rounds and
+change requests add one each. "Cache read" tokens are context re-used from
+the previous turn and cost far less than new input.
+
+To use a cheaper model for every session, pass `--model` or set
+`AIDLC_MODEL`, for example:
+
+```bash
+AIDLC_MODEL=sonnet npm run aidlc:ui
+```
+
 ## Quick start: one command
 
 Authorise an org once, then give the runner an intent:
@@ -83,6 +109,7 @@ artifact lands in `aidlc-docs/`.
 | `--auto` | Approve every gate automatically. The audit log marks these `(auto)`. Leave it out and the runner asks you at each gate. |
 | `--org <alias>` | Deploy to this org. Leave it out and the run stops after Construction; run again with `--org` to deploy. |
 | `--reset` | Delete the previous run's artifacts and everything under `force-app/main/default` first. |
+| `--model <model>` | Claude model for every session, for example `sonnet`. Same as setting `AIDLC_MODEL`. |
 
 The run can be stopped at any time. Run the command again and it resumes
 from `aidlc-docs/state.md`.

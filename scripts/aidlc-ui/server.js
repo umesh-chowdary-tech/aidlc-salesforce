@@ -42,6 +42,7 @@ const ui = {
     run: null, // { running, startedAt, finishedAt, result, error }
     pending: null, // { id, kind, ...request } waiting for the person
     log: [],
+    usage: null, // token totals for the current run
     busy: null // short text while an org action runs
 };
 let resolvePending = null;
@@ -74,6 +75,7 @@ function snapshot() {
         org: ui.org,
         run: ui.run,
         busy: ui.busy,
+        usage: ui.usage || null,
         pending,
         documents: available,
         requirement: docs.readRequirement(ROOT),
@@ -242,6 +244,7 @@ function startRun(intent) {
     if (!ui.org) return { ok: false, error: 'Connect a Salesforce org first.' };
     abort = new AbortController();
     ui.run = { running: true, startedAt: new Date().toISOString(), result: null, error: null };
+    ui.usage = null;
     addLog('status', state.phase === 'not-started' ? 'Starting.' : 'Continuing where the work stopped.');
     changed();
     runner
@@ -257,7 +260,12 @@ function startRun(intent) {
                 changed();
             },
             onOutput: (text) => addLog('agent', text),
-            onChild: (child) => (currentChild = child)
+            onChild: (child) => (currentChild = child),
+            onUsage: (totals) => {
+                ui.usage = totals;
+                changed();
+            },
+            model: process.env.AIDLC_MODEL || undefined
         })
         .then(
             (result) => {
@@ -291,9 +299,9 @@ function stopRun() {
 function toRunnerReply(pending, body) {
     if (pending.kind === 'gate') {
         const comment = String(body.comment || '').trim();
-        if (body.approve) return comment ? `Approved. ${comment}` : 'Approved.';
+        if (body.approve) return { approved: true, words: comment ? `Approved. ${comment}` : 'Approved.', comment };
         if (!comment) throw new Error('Say what should change.');
-        return `Changes requested: ${comment}`;
+        return { approved: false, words: `Changes requested: ${comment}` };
     }
     if (pending.kind === 'questions') {
         const answers = {};

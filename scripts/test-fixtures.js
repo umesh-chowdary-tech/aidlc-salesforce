@@ -25,6 +25,8 @@ fs.appendFileSync(path.join(root, 'calls.log'),
   cmd + '|' + arg + '|' + gate + '|' + (approved ? 'approve' : rejected ? 'reject' : 'run') +
   '|' + (/\\(auto\\)/.test(prompt) ? 'auto' : 'human') + '\\n');
 console.log(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: stateFile } }] } }));
+process.on('exit', () => console.log(JSON.stringify({ type: 'result', num_turns: 4, total_cost_usd: 0.25,
+  usage: { input_tokens: 1000, cache_creation_input_tokens: 20000, cache_read_input_tokens: 80000, output_tokens: 3000 } })));
 if (process.env.FAKE_STUCK) process.exit(0);
 if (rejected) {
   fs.writeFileSync(path.join(root, 'checks-ok'), '1');
@@ -48,7 +50,8 @@ if (rejected) {
 } else if (cmd === 'aidlc-inception') {
   set('phase', 'construction'); set('pending_gate', 'none');
 } else if (cmd === 'aidlc-construction' && !approved) {
-  set('unit', arg); set('pending_gate', 'design-approval');
+  set('unit', arg);
+  set('pending_gate', /design-approval gate is approved automatically/.test(prompt) ? 'unit-approval' : 'design-approval');
 } else if (cmd === 'aidlc-construction' && gate === 'design-approval') {
   set('pending_gate', 'unit-approval');
 } else if (cmd === 'aidlc-construction' && gate === 'unit-approval') {

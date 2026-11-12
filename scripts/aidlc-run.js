@@ -3,7 +3,7 @@
 // Claude CLI in headless mode. State lives in aidlc-docs/state.md, so the
 // runner can be stopped and started again at any point.
 //
-//   node scripts/aidlc-run.js [--auto | --guided] [--org <alias>] [--reset] "<intent>"
+//   node scripts/aidlc-run.js [--auto | --guided] [--org <alias>] [--model <m>] [--reset] "<intent>"
 //
 //   --auto    approve every gate automatically (recorded as automatic in the
 //             audit log). Without it the runner asks you at each gate.
@@ -13,6 +13,10 @@
 //   --org     Salesforce org alias to deploy to. Without it the run stops
 //             after Construction.
 //   --reset   discard a previous run's artifacts and generated source first.
+//   --model   Claude model for every agent session (or set AIDLC_MODEL), for
+//             example "sonnet". Without it the Claude CLI's default is used.
+//
+// Each agent session's token use is appended to aidlc-docs/usage.md.
 //
 // The guided UI (npm run aidlc:ui) uses run() from this module with its own
 // responder instead of the terminal.
@@ -73,7 +77,7 @@ function approvalPolicy(mode) {
 }
 
 function parseArgs(argv) {
-    const opts = { mode: 'human', org: null, reset: false, intent: '' };
+    const opts = { mode: 'human', org: null, reset: false, intent: '', model: process.env.AIDLC_MODEL || null };
     const rest = [];
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
@@ -81,6 +85,7 @@ function parseArgs(argv) {
         else if (a === '--guided') opts.mode = 'guided';
         else if (a === '--reset') opts.reset = true;
         else if (a === '--org') opts.org = argv[++i];
+        else if (a === '--model') opts.model = argv[++i];
         else if (a === '-h' || a === '--help') opts.help = true;
         else rest.push(a);
     }
@@ -196,30 +201,53 @@ function runClaude(prompt, opts) {
         '--append-system-prompt',
         system
     ];
-    const streaming = typeof opts.onOutput === 'function';
-    if (streaming) args.push('--output-format', 'stream-json', '--verbose');
+    if (opts.model) args.push('--model', opts.model);
+    args.push('--output-format', 'stream-json', '--verbose');
+    const onOutput = opts.onOutput || ((text) => console.log(text));
     return new Promise((resolve, reject) => {
-        const child = spawn(claudeBin(), args, {
-            cwd: opts.root,
-            stdio: streaming ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'inherit', 'inherit']
-        });
+        const child = spawn(claudeBin(), args, { cwd: opts.root, stdio: ['ignore', 'pipe', 'pipe'] });
         if (opts.onChild) opts.onChild(child);
-        if (streaming) {
-            const out = readline.createInterface({ input: child.stdout });
-            out.on('line', (line) => {
-                const text = describeEvent(line, opts.root);
-                if (text) opts.onOutput(text);
-            });
-            const err = readline.createInterface({ input: child.stderr });
-            err.on('line', (line) => line.trim() && opts.onOutput(line));
-        }
+        let usage = null;
+        const out = readline.createInterface({ input: child.stdout });
+        out.on('line', (line) => {
+            const u = readUsage(line);
+            if (u) usage = u;
+            const text = describeEvent(line, opts.root);
+            if (text) onOutput(text);
+        });
+        const err = readline.createInterface({ input: child.stderr });
+        err.on('line', (line) => line.trim() && onOutput(line));
         child.on('error', reject);
         child.on('close', (status) => {
             if (opts.onChild) opts.onChild(null);
-            if (status === 0) resolve();
+            if (status === 0) resolve(usage);
             else reject(new Error(`claude exited with status ${status}`));
         });
     });
+}
+
+// Token use from the final "result" event of a stream-json session.
+function readUsage(line) {
+    let event;
+    try {
+        event = JSON.parse(line);
+    } catch (e) {
+        return null;
+    }
+    if (!event || event.type !== 'result') return null;
+    const u = event.usage || {};
+    return {
+        turns: event.num_turns || 0,
+        input: u.input_tokens || 0,
+        cacheWrite: u.cache_creation_input_tokens || 0,
+        cacheRead: u.cache_read_input_tokens || 0,
+        output: u.output_tokens || 0,
+        cost: event.total_cost_usd || 0
+    };
+}
+
+function formatTokens(n) {
+    return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
 }
 
 function runCommand(cmd, args, cwd) {
@@ -284,7 +312,10 @@ function terminalResponder() {
     const respond = async (request) => {
         if (request.kind === 'gate') {
             log(`Gate pending: ${request.gate}${request.unit !== '-' ? ` for unit ${request.unit}` : ''}. ${request.nextStep}`);
-            return ask('Type your approval (for example "approved") or the changes you want:');
+            const words = await ask('Type your approval (for example "approved") or the changes you want:');
+            // A bare approval needs no interpretation; anything else goes to the agent verbatim.
+            if (/^(approved?|yes|y|ok|okay|lgtm|looks good)[.!]?$/i.test(words)) return { approved: true, words };
+            return words;
         }
         if (request.kind === 'questions') {
             log(`Questions in ${request.file}:`);
@@ -359,6 +390,7 @@ async function respondToGate(ctx, state) {
             }
             ctx.status(`Local checks failed${unitNote}; sending back for fixes (round ${ctx.fixRounds[key]}).`);
             await ctx.claude(
+                `fix after failed checks${unitNote}`,
                 commandPrompt(
                     command,
                     argument,
@@ -373,27 +405,81 @@ async function respondToGate(ctx, state) {
 
     const who = ctx.policy[state.gate];
     let words;
+    let approved = false; // true only when the approval is certain, not free text
+    let comment = '';
     if (who === 'auto') {
         words = opts.mode === 'auto' ? AUTO_APPROVAL : GUIDED_APPROVAL[state.gate];
+        approved = true;
         ctx.status(`Approved automatically: ${state.gate}${unitNote}.`);
     } else {
-        words = await ctx.respond({ kind: 'gate', gate: state.gate, unit: state.unit, nextStep: state.nextStep });
+        const reply = await ctx.respond({ kind: 'gate', gate: state.gate, unit: state.unit, nextStep: state.nextStep });
+        if (reply && typeof reply === 'object') {
+            words = reply.words;
+            approved = reply.approved === true;
+            comment = String(reply.comment || '').trim();
+        } else {
+            words = reply;
+        }
         if (!words) throw new Error('No response at the gate; stopping. Run again to resume.');
     }
     const auto = who === 'auto';
+    const event = `${state.gate}${unitNote ? ' ' + state.unit : ''}${auto ? ' (auto)' : ''}`;
+
+    // A plain approval of a gate whose "On approval" steps are only
+    // bookkeeping is recorded by the runner: no agent session needed.
+    if (approved && !comment && (state.gate === 'inception-approval' || state.gate === 'unit-approval')) {
+        docs.appendAudit(root, event, words);
+        if (state.gate === 'inception-approval') {
+            const first = docs.readUnits(root)[0];
+            docs.updateState(root, {
+                phase: 'construction',
+                unit: '-',
+                pending_gate: 'none',
+                next_step: first ? `Run /aidlc-construction ${first}.` : 'Run /aidlc-construction <first unit slug>.'
+            });
+        } else {
+            const approvedUnits = [...docs.readState(root).approved, state.unit];
+            const next = docs.readUnits(root).find((u) => !approvedUnits.includes(u));
+            docs.updateState(
+                root,
+                { unit: '-', pending_gate: 'none', next_step: next ? `Run /aidlc-construction ${next}.` : 'Run /aidlc-operations.' },
+                state.unit
+            );
+        }
+        ctx.status(`Recorded ${event} in the audit log.`);
+        return 'continue';
+    }
+
     ctx.status(auto ? `Continuing after ${state.gate}${unitNote}.` : `Passing your response to the agent (${state.gate}).`);
     await ctx.claude(
+        `${state.gate}${unitNote}`,
         commandPrompt(
             command,
             argument,
             `The ${state.gate} gate${unitNote} is pending. The response to it, verbatim:\n"${words}"\n\n` +
                 (auto
-                    ? `This is an automatic approval. Record it in aidlc-docs/audit.md with the event name "${state.gate}${unitNote ? ' ' + state.unit : ''} (auto)" and these words. `
-                    : 'If it is an approval, record it in aidlc-docs/audit.md with these exact words. If it asks for changes, make them and return to the gate. ') +
+                    ? `This is an automatic approval. Record it in aidlc-docs/audit.md with the event name "${event}" and these words. `
+                    : approved
+                      ? 'This is an approval. Record it in aidlc-docs/audit.md with these exact words, and take the comment in it into account. '
+                      : 'If it is an approval, record it in aidlc-docs/audit.md with these exact words. If it asks for changes, make them and return to the gate. ') +
                 'After an approval, do the "On approval" steps of the command and keep going until the next gate.'
         )
     );
     return 'continue';
+}
+
+// When the design gate is approved automatically, the agent designs and
+// builds a unit in one session instead of stopping and starting again.
+function designAndBuildNote(ctx, unit) {
+    if (ctx.policy['design-approval'] !== 'auto') return '';
+    const words = ctx.opts.mode === 'auto' ? AUTO_APPROVAL : GUIDED_APPROVAL['design-approval'];
+    return (
+        'In this run the design-approval gate is approved automatically, so do not stop there. ' +
+        'After writing the unit design and test plan, append to aidlc-docs/audit.md the event ' +
+        `"design-approval ${unit} (auto)" with these words:\n"${words}"\n` +
+        'Then do the "On design approval" steps in the same session and stop at the unit-approval gate. ' +
+        'Questions that need the human still stop the work as the command says.'
+    );
 }
 
 async function step(ctx) {
@@ -421,6 +507,7 @@ async function step(ctx) {
         const failed = reply.results.filter((r) => !r.ok);
         ctx.status('Sending what did not work back to the agent.');
         await ctx.claude(
+            'fix after acceptance',
             commandPrompt(
                 'aidlc-fix',
                 opts.org,
@@ -469,7 +556,7 @@ async function step(ctx) {
             throw new Error('An intent is required to start. Pass it as the last argument.');
         }
         ctx.status('Inception: turning the requirement into user stories and units of work.');
-        await ctx.claude(commandPrompt('aidlc-inception', opts.intent || '(continue the intent in aidlc-docs/inception/intent.md)'));
+        await ctx.claude('inception', commandPrompt('aidlc-inception', opts.intent || '(continue the intent in aidlc-docs/inception/intent.md)'));
         return 'continue';
     }
 
@@ -479,7 +566,7 @@ async function step(ctx) {
         const next = units.find((u) => !state.approved.includes(u));
         if (next) {
             ctx.status(`Construction: designing and building "${next}" (unit ${units.indexOf(next) + 1} of ${units.length}).`);
-            await ctx.claude(commandPrompt('aidlc-construction', next));
+            await ctx.claude(`construction ${next}`, commandPrompt('aidlc-construction', next, designAndBuildNote(ctx, next)));
             return 'continue';
         }
         if (!opts.org) {
@@ -487,7 +574,7 @@ async function step(ctx) {
             return 'stopped';
         }
         ctx.status(`Operations: checking the deployment against org "${opts.org}".`);
-        await ctx.claude(commandPrompt('aidlc-operations', opts.org));
+        await ctx.claude('operations: validate', commandPrompt('aidlc-operations', opts.org));
         return 'continue';
     }
 
@@ -497,7 +584,7 @@ async function step(ctx) {
             return 'stopped';
         }
         ctx.status(`Operations: continuing against org "${opts.org}".`);
-        await ctx.claude(commandPrompt('aidlc-operations', opts.org));
+        await ctx.claude('operations', commandPrompt('aidlc-operations', opts.org));
         return 'continue';
     }
 
@@ -511,6 +598,8 @@ async function step(ctx) {
 //   opts.onStatus  (text) => void, for the runner's own progress lines
 //   opts.onOutput  (text) => void, for the agent's progress (stream-json)
 //   opts.onChild   (child | null) => void, to allow cancelling
+//   opts.onUsage   (totals) => void, after each agent session
+//   opts.model     Claude model for every agent session
 // Resolves to 'done' or 'stopped'.
 async function run(options) {
     const opts = { mode: 'human', intent: '', org: null, ...options };
@@ -525,7 +614,22 @@ async function run(options) {
         fixRounds: {},
         respond: opts.respond,
         status: opts.onStatus || log,
-        claude: (prompt) => runClaude(prompt, { ...opts, root })
+        usage: { sessions: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, cost: 0 },
+        claude: async (label, prompt) => {
+            const u = await runClaude(prompt, { ...opts, root });
+            ctx.usage.sessions += 1;
+            if (u) {
+                for (const k of ['input', 'cacheWrite', 'cacheRead', 'output', 'cost']) ctx.usage[k] += u[k];
+                docs.appendUsage(root, label, u);
+                const fresh = u.input + u.cacheWrite;
+                ctx.status(
+                    `Agent session "${label}": ${u.turns} turns, ${formatTokens(fresh)} new input tokens, ` +
+                        `${formatTokens(u.cacheRead)} re-used from cache, ${formatTokens(u.output)} output` +
+                        (u.cost ? ` (about $${u.cost.toFixed(2)} at API prices).` : '.')
+                );
+            }
+            if (opts.onUsage) opts.onUsage({ ...ctx.usage });
+        }
     };
     if (opts.reset) {
         ctx.status('Resetting artifacts and generated source.');
@@ -536,11 +640,19 @@ async function run(options) {
         if (opts.signal && opts.signal.aborted) throw new Error('Stopped.');
         const before = JSON.stringify(docs.readState(root));
         const result = await step(ctx);
-        if (result === 'done') {
-            ctx.status('Complete. See aidlc-docs/operations/deployment-record.md.');
-            return 'done';
+        if (result === 'done' || result === 'stopped') {
+            const u = ctx.usage;
+            if (u.sessions) {
+                ctx.status(
+                    `This run used ${u.sessions} agent session(s): ${formatTokens(u.input + u.cacheWrite)} new input tokens, ` +
+                        `${formatTokens(u.cacheRead)} re-used from cache, ${formatTokens(u.output)} output` +
+                        (u.cost ? `, about $${u.cost.toFixed(2)} at API prices` : '') +
+                        '. Per-session detail: aidlc-docs/usage.md.'
+                );
+            }
+            if (result === 'done') ctx.status('Complete. See aidlc-docs/operations/deployment-record.md.');
+            return result;
         }
-        if (result === 'stopped') return 'stopped';
         // A fix round or saved answers legitimately leave state unchanged.
         if (result === 'fix' || result === 'answered') continue;
         const after = JSON.stringify(docs.readState(root));
@@ -558,7 +670,7 @@ async function run(options) {
 async function main() {
     const opts = parseArgs(process.argv.slice(2));
     if (opts.help) {
-        console.log('Usage: node scripts/aidlc-run.js [--auto | --guided] [--org <alias>] [--reset] "<intent>"');
+        console.log('Usage: node scripts/aidlc-run.js [--auto | --guided] [--org <alias>] [--model <model>] [--reset] "<intent>"');
         return 0;
     }
     const respond = terminalResponder();

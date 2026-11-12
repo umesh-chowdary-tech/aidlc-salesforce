@@ -150,6 +150,7 @@ async function browserFlow(url, project, shots) {
         await page.getByRole('button', { name: 'Approve the plan' }).click();
 
         await heading('Ready to install');
+        assert.match(await page.locator('#usage').textContent(), /This run so far: \d+ agent sessions?, /, 'token use is shown');
         await shot('install');
         await page.getByRole('button', { name: 'Install it' }).click();
 

@@ -28,18 +28,21 @@ const tests = {
         const res = run(pr, ['--auto', '--org', 'demo', 'Score leads']);
         assert.strictEqual(res.status, 0, res.stderr + res.stdout);
         assert.match(state(pr), /^phase: done$/m);
+        // Approvals that are only bookkeeping are recorded by the runner, and
+        // each unit is designed and built in one session: 5 sessions, not 10.
         assert.deepStrictEqual(calls(pr), [
             'aidlc-inception|Score leads|none|run|human',
-            'aidlc-inception|Score leads|inception-approval|approve|auto',
-            'aidlc-construction|unit-a|none|run|human',
-            'aidlc-construction|unit-a|design-approval|approve|auto',
-            'aidlc-construction|unit-a|unit-approval|approve|auto',
-            'aidlc-construction|unit-b|none|run|human',
-            'aidlc-construction|unit-b|design-approval|approve|auto',
-            'aidlc-construction|unit-b|unit-approval|approve|auto',
+            'aidlc-construction|unit-a|none|run|auto',
+            'aidlc-construction|unit-b|none|run|auto',
             'aidlc-operations|demo|none|run|human',
             'aidlc-operations|demo|deploy-approval|approve|auto'
         ]);
+        const audit = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8');
+        assert.match(audit, /inception-approval \(auto\)\n\nAuto-approved by the runner \(--auto\)/);
+        assert.match(audit, /unit-approval unit-a \(auto\)/);
+        assert.match(audit, /unit-approval unit-b \(auto\)/);
+        assert.match(state(pr), /^- unit-a$/m);
+        assert.match(state(pr), /^- unit-b$/m);
     },
     'without an org the run stops after construction and never deploys'() {
         const pr = makeProject();
@@ -57,7 +60,7 @@ const tests = {
         assert.match(state(pr), /^phase: done$/m);
         assert.strictEqual(
             calls(pr).filter((c) => c.startsWith('aidlc-inception')).length,
-            2,
+            1,
             'inception must not run again on resume'
         );
     },
@@ -77,7 +80,9 @@ const tests = {
         const c = calls(pr);
         const i = c.indexOf('aidlc-construction|unit-a|unit-approval|reject|human');
         assert.ok(i > 0, 'expected a rejection for unit-a');
-        assert.strictEqual(c[i + 1], 'aidlc-construction|unit-a|unit-approval|approve|auto');
+        // After the fix the checks pass and the runner approves unit-a itself.
+        assert.strictEqual(c[i + 1], 'aidlc-construction|unit-b|none|run|auto');
+        assert.match(state(pr), /^- unit-a$/m);
     },
     'checks that never pass stop the run with an error'() {
         const pr = makeProject({ failChecksOnce: true });
@@ -146,7 +151,11 @@ Object.assign(tests, {
     async 'guided mode asks the person only for the stories, the deploy and the result'() {
         const pr = makeProject();
         const { result, requests } = await runGuided(pr, {
-            replies: { 'inception-approval': 'Looks right', 'deploy-approval': 'Go ahead', acceptance: allYes }
+            replies: {
+                'inception-approval': { approved: true, words: 'Looks right' },
+                'deploy-approval': { approved: true, words: 'Go ahead' },
+                acceptance: allYes
+            }
         });
         assert.strictEqual(result, 'done');
         assert.deepStrictEqual(
@@ -154,11 +163,15 @@ Object.assign(tests, {
             ['inception-approval', 'deploy-approval', 'acceptance']
         );
         assert.deepStrictEqual(requests[2].items, ['Open a Lead -> you see a score', 'Save it -> the score updates']);
-        const c = calls(pr);
-        assert.ok(c.includes('aidlc-construction|unit-a|design-approval|approve|auto'));
-        assert.ok(c.includes('aidlc-construction|unit-b|unit-approval|approve|auto'));
-        assert.ok(c.includes('aidlc-inception|Score leads|inception-approval|approve|human'));
-        assert.ok(c.includes('aidlc-operations|demo|deploy-approval|approve|human'));
+        assert.deepStrictEqual(calls(pr), [
+            'aidlc-inception|Score leads|none|run|human',
+            'aidlc-construction|unit-a|none|run|auto',
+            'aidlc-construction|unit-b|none|run|auto',
+            'aidlc-operations|demo|none|run|human',
+            'aidlc-operations|demo|deploy-approval|approve|human'
+        ]);
+        const audit = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8');
+        assert.match(audit, /inception-approval\n\nLooks right/);
         const acceptance = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/operations/acceptance.md'), 'utf8');
         assert.match(acceptance, /^Result: accepted$/m);
         assert.match(fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8'), /acceptance\n\n- Yes: Open a Lead/);
@@ -230,6 +243,32 @@ Object.assign(tests, {
         );
         assert.strictEqual(docs.readRequirement(pr.dir), 'Score each Lead from 0 to 100.');
         assert.strictEqual(docs.readRequirement(makeProject().dir), '');
+    },
+    async 'each agent session\'s token use is logged and totalled'() {
+        const pr = makeProject();
+        const totals = [];
+        const { run } = require('./aidlc-run');
+        process.env.CLAUDE_BIN = pr.fake;
+        try {
+            await run({ root: pr.dir, mode: 'auto', intent: 'Score leads', onStatus: () => {}, onOutput: () => {}, onUsage: (t) => totals.push(t) });
+        } finally {
+            delete process.env.CLAUDE_BIN;
+        }
+        const last = totals[totals.length - 1];
+        assert.strictEqual(last.sessions, 3, 'inception and two units, no org');
+        assert.strictEqual(last.cacheRead, 240000);
+        assert.ok(Math.abs(last.cost - 0.75) < 1e-9);
+        const usage = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/usage.md'), 'utf8');
+        assert.strictEqual((usage.match(/^\| 20/gm) || []).length, 3, 'one row per session');
+        assert.match(usage, /\| construction unit-a \| 4 \| 1000 \| 20000 \| 80000 \| 3000 \| 0\.2500 \|/);
+    },
+    'a plain "approved" typed at a gate is recorded by the runner; anything else goes to the agent'() {
+        const pr = makeProject();
+        const res = run(pr, ['Score leads'], { input: 'approved\n' });
+        assert.strictEqual(res.status, 1, 'stops at the next gate when input runs out');
+        assert.ok(!calls(pr).some((c) => c.includes('inception-approval|approve')), 'no agent session for a plain approval');
+        assert.match(fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8'), /inception-approval\n\napproved/);
+        assert.match(state(pr), /^pending_gate: design-approval$/m, 'gate-by-gate mode still stops at the design');
     },
     'agent stream events become readable progress lines'() {
         const { describeEvent } = require('./aidlc-run');
