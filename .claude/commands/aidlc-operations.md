@@ -76,9 +76,13 @@ Only when the human explicitly approves the deploy:
    `sf org assign permset --name <PermissionSetName> --target-org <alias>`
 5. Do the manual checks listed in the units' test plans, or ask the human to
    and record what they report.
-6. Complete every section of `deployment-record.md`. Coverage below 90% for
+6. Write `aidlc-docs/operations/acceptance-checklist.md` from
+   `aidlc/templates/acceptance-checklist.md`: one line per thing the
+   requester should try in the org, covering every user story's acceptance
+   criteria, in plain language.
+7. Complete every section of `deployment-record.md`. Coverage below 90% for
    any class is reported as a shortfall, not hidden.
-7. Update `aidlc-docs/state.md`: `phase: done`,
+8. Update `aidlc-docs/state.md`: `phase: done`,
    `next_step: Complete. See aidlc-docs/operations/deployment-record.md.`
 
 If the deploy fails, record the failure, leave `phase: operations`, and

@@ -39,20 +39,23 @@ A gate is a point where work stops for human approval:
 - If a command is run while a different gate is pending, refuse, name the
   pending gate, and stop.
 
-## Automatic mode
+## Runner modes
 
-`npm run aidlc -- --auto "<intent>"` runs every phase without stopping. The
-human opts in by passing `--auto`. In this mode only, the runner supplies
-each approval; record it in the audit log with the event marked `(auto)` so
-it is never mistaken for a person's review. Open questions are answered with
-the simplest reasonable assumption, written as `Assumed (auto mode): ...`.
-The runner still runs the tests and lint itself before a unit is approved.
+The runner (`npm run aidlc`, or the page from `npm run aidlc:ui`) approves only
+in modes a human opted into, marking each audit event `(auto)`:
+- `--auto`: every gate; questions get `Assumed (auto mode): <answer>`.
+- `--guided` (the browser page): design and unit gates only. The person
+  answers questions, approves the stories and the deploy, and checks the
+  result in the org. Write everything they read in plain language.
+- Either way, its own tests and lint must pass before unit approval, and it
+  may tell you to design and build a unit in one session.
 
 ## Questions
 
 When information is missing, do not guess. Write the questions to the
 phase's `questions.md` with lettered options and an empty `Answer:` line,
-tell the human, and wait until the answers are in the file.
+tell the human, and wait until the answers are in the file. Put the option
+you recommend first and end it with `(Recommended)`.
 
 ## Salesforce guardrails
 
