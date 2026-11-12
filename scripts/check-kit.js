@@ -19,7 +19,8 @@ const templates = [
     'units-of-work',
     'unit-design',
     'test-plan',
-    'deployment-record'
+    'deployment-record',
+    'acceptance-checklist'
 ].map((n) => `aidlc/templates/${n}.md`);
 const commands = [
     'aidlc-inception',
@@ -33,6 +34,7 @@ const required = [
     'aidlc/salesforce-rules.md',
     ...templates,
     ...commandFiles,
+    '.claude/commands/aidlc-fix.md',
     'aidlc-docs/state.md',
     'aidlc-docs/audit.md'
 ];

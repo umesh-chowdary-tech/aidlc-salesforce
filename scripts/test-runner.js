@@ -2,77 +2,14 @@
 // Tests the runner's control flow against a fake Claude CLI that only moves
 // aidlc-docs/state.md the way the real commands would. No AI, no org.
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const assert = require('assert');
 const { spawnSync } = require('child_process');
 
 const runner = path.resolve(__dirname, 'aidlc-run.js');
+const docs = require('./aidlc-docs');
 
-// The fake CLI: reads the prompt, applies the matching state transition,
-// and logs each call to calls.log.
-const FAKE = `#!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
-const root = process.cwd();
-const prompt = process.argv[process.argv.indexOf('-p') + 1];
-const stateFile = path.join(root, 'aidlc-docs/state.md');
-let s = fs.readFileSync(stateFile, 'utf8');
-const set = (k, v) => { s = s.replace(new RegExp('^' + k + ':.*$', 'm'), k + ': ' + v); };
-const get = (k) => s.match(new RegExp('^' + k + ':\\\\s*(.*)$', 'm'))[1].trim();
-const cmd = prompt.match(/commands\\/(aidlc-[a-z]+)\\.md/)[1];
-const arg = prompt.match(/argument: (.*)/)[1].trim();
-const gate = get('pending_gate');
-const approved = /gate.*is pending\\. The response/.test(prompt);
-const rejected = /is NOT approved/.test(prompt);
-fs.appendFileSync(path.join(root, 'calls.log'),
-  cmd + '|' + arg + '|' + gate + '|' + (approved ? 'approve' : rejected ? 'reject' : 'run') +
-  '|' + (/\\(auto\\)/.test(prompt) ? 'auto' : 'human') + '\\n');
-if (process.env.FAKE_STUCK) process.exit(0);
-if (rejected) {
-  fs.writeFileSync(path.join(root, 'checks-ok'), '1');
-} else if (cmd === 'aidlc-inception' && !approved) {
-  fs.mkdirSync(path.join(root, 'aidlc-docs/inception'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'aidlc-docs/inception/units-of-work.md'),
-    '# Units\\n\\n## 1. unit-a\\n\\n- x\\n\\n## 2. unit-b\\n\\n- y\\n');
-  set('phase', 'inception'); set('pending_gate', 'inception-approval');
-} else if (cmd === 'aidlc-inception') {
-  set('phase', 'construction'); set('pending_gate', 'none');
-} else if (cmd === 'aidlc-construction' && !approved) {
-  set('unit', arg); set('pending_gate', 'design-approval');
-} else if (cmd === 'aidlc-construction' && gate === 'design-approval') {
-  set('pending_gate', 'unit-approval');
-} else if (cmd === 'aidlc-construction' && gate === 'unit-approval') {
-  s = s.trimEnd() + '\\n- ' + get('unit') + '\\n';
-  set('unit', '-'); set('pending_gate', 'none');
-} else if (cmd === 'aidlc-operations' && !approved) {
-  set('phase', 'operations'); set('pending_gate', 'deploy-approval');
-} else if (cmd === 'aidlc-operations') {
-  set('phase', 'done'); set('pending_gate', 'none');
-}
-fs.writeFileSync(stateFile, s);
-`;
-
-function makeProject({ failChecksOnce = false } = {}) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-runner-'));
-    fs.mkdirSync(path.join(dir, 'aidlc-docs'), { recursive: true });
-    fs.mkdirSync(path.join(dir, 'force-app/main/default'), { recursive: true });
-    fs.writeFileSync(
-        path.join(dir, 'aidlc-docs/state.md'),
-        '# AI-DLC state\n\nphase: not-started\nunit: -\npending_gate: none\nnext_step: start\n\n## Approved units\n\n'
-    );
-    fs.writeFileSync(path.join(dir, 'aidlc-docs/audit.md'), '# audit\n');
-    const check = failChecksOnce
-        ? `node -e "process.exit(require('fs').existsSync('checks-ok')?0:1)"`
-        : 'node -e "process.exit(0)"';
-    fs.writeFileSync(
-        path.join(dir, 'package.json'),
-        JSON.stringify({ scripts: { 'test:unit': check, lint: 'node -e "process.exit(0)"' } })
-    );
-    const fake = path.join(dir, 'fake-claude.js');
-    fs.writeFileSync(fake, FAKE, { mode: 0o755 });
-    return { dir, fake };
-}
+const { makeProject } = require('./test-fixtures');
 
 function run(project, args, { input = '', env = {} } = {}) {
     return spawnSync('node', [runner, ...args], {
@@ -181,15 +118,132 @@ const tests = {
     }
 };
 
-let failed = 0;
-for (const [name, fn] of Object.entries(tests)) {
+// In-process runs of run() with a scripted responder, as the guided UI uses it.
+async function runGuided(project, { org = 'demo', intent = 'Score leads', replies = {}, env = {} } = {}) {
+    const { run } = require('./aidlc-run');
+    const requests = [];
+    const saved = {};
+    Object.assign(process.env, { CLAUDE_BIN: project.fake, ...env });
+    for (const k of Object.keys(env)) saved[k] = true;
+    const counts = {};
+    const respond = async (request) => {
+        requests.push(request);
+        const key = request.kind === 'gate' ? request.gate : request.kind;
+        counts[key] = (counts[key] || 0) + 1;
+        const reply = replies[key];
+        return typeof reply === 'function' ? reply(request, counts[key]) : reply;
+    };
     try {
-        fn();
-        console.log(`  ok  ${name}`);
-    } catch (e) {
-        failed++;
-        console.log(`  FAIL ${name}\n       ${String(e.message).split('\n').join('\n       ')}`);
+        const result = await run({ root: project.dir, mode: 'guided', org, intent, respond, onStatus: () => {}, onOutput: () => {} });
+        return { result, requests };
+    } finally {
+        for (const k of Object.keys(saved)) delete process.env[k];
     }
 }
-console.log(`\n${Object.keys(tests).length - failed}/${Object.keys(tests).length} passed`);
-process.exit(failed ? 1 : 0);
+const allYes = (req) => ({ results: req.items.map((item) => ({ item, ok: true, note: '' })) });
+
+Object.assign(tests, {
+    async 'guided mode asks the person only for the stories, the deploy and the result'() {
+        const pr = makeProject();
+        const { result, requests } = await runGuided(pr, {
+            replies: { 'inception-approval': 'Looks right', 'deploy-approval': 'Go ahead', acceptance: allYes }
+        });
+        assert.strictEqual(result, 'done');
+        assert.deepStrictEqual(
+            requests.map((r) => (r.kind === 'gate' ? r.gate : r.kind)),
+            ['inception-approval', 'deploy-approval', 'acceptance']
+        );
+        assert.deepStrictEqual(requests[2].items, ['Open a Lead -> you see a score', 'Save it -> the score updates']);
+        const c = calls(pr);
+        assert.ok(c.includes('aidlc-construction|unit-a|design-approval|approve|auto'));
+        assert.ok(c.includes('aidlc-construction|unit-b|unit-approval|approve|auto'));
+        assert.ok(c.includes('aidlc-inception|Score leads|inception-approval|approve|human'));
+        assert.ok(c.includes('aidlc-operations|demo|deploy-approval|approve|human'));
+        const acceptance = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/operations/acceptance.md'), 'utf8');
+        assert.match(acceptance, /^Result: accepted$/m);
+        assert.match(fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8'), /acceptance\n\n- Yes: Open a Lead/);
+    },
+    async 'open questions are put to the person and answered before work continues'() {
+        const pr = makeProject();
+        const { requests } = await runGuided(pr, {
+            org: null,
+            env: { FAKE_QUESTIONS: '1' },
+            replies: {
+                questions: (req) => {
+                    assert.strictEqual(req.questions[0].text, 'Who uses it?');
+                    assert.ok(req.questions[0].options[0].recommended);
+                    return { answers: { 1: 'A' } };
+                },
+                'inception-approval': 'Approved'
+            }
+        });
+        assert.strictEqual(requests[0].kind, 'questions');
+        assert.strictEqual(requests[1].gate, 'inception-approval');
+        const q = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/inception/questions.md'), 'utf8');
+        assert.match(q, /^Answer: A$/m);
+        assert.match(fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8'), /answers aidlc-docs\/inception\/questions\.md\n\n1\. A/);
+    },
+    async 'a result that does not work goes back to the agent and is checked again'() {
+        const pr = makeProject();
+        const { result, requests } = await runGuided(pr, {
+            replies: {
+                'inception-approval': 'Approved',
+                'deploy-approval': 'Approved',
+                acceptance: (req, n) =>
+                    n === 1
+                        ? { results: [{ item: req.items[0], ok: true }, { item: req.items[1], ok: false, note: 'Score stayed at 40' }] }
+                        : allYes(req)
+            }
+        });
+        assert.strictEqual(result, 'done');
+        assert.strictEqual(requests.filter((r) => r.kind === 'acceptance').length, 2);
+        assert.strictEqual(requests.filter((r) => r.gate === 'deploy-approval').length, 2);
+        assert.ok(calls(pr).some((c) => c.startsWith('aidlc-fix|demo|')));
+        const audit = fs.readFileSync(path.join(pr.dir, 'aidlc-docs/audit.md'), 'utf8');
+        assert.match(audit, /acceptance \(changes requested\)\n\n- Yes: Open a Lead[^\n]*\n- No: Save it -> the score updates \(Score stayed at 40\)/);
+    },
+    async 'guided mode without an org stops after construction and asks nothing more'() {
+        const pr = makeProject();
+        const { result, requests } = await runGuided(pr, { org: null, replies: { 'inception-approval': 'Approved' } });
+        assert.strictEqual(result, 'stopped');
+        assert.deepStrictEqual(requests.map((r) => r.gate), ['inception-approval']);
+    },
+    'questions parser reads options, recommendations and answers'() {
+        const qs = docs.parseQuestions(
+            '# Questions\n\n## 1. Where is it stored?\n\nSome context.\n\n- A. A field (Recommended)\n- B. Two fields,\n  one per year\n\nAnswer:\n\n## 2. Done?\n\n- A. Yes\n\nAnswer: A\n'
+        );
+        assert.strictEqual(qs.length, 2);
+        assert.deepStrictEqual(qs[0].details, ['Some context.']);
+        assert.deepStrictEqual(qs[0].options, [
+            { letter: 'A', text: 'A field', recommended: true },
+            { letter: 'B', text: 'Two fields, one per year', recommended: false }
+        ]);
+        assert.strictEqual(qs[0].answer, '');
+        assert.strictEqual(qs[1].answer, 'A');
+    },
+    'agent stream events become readable progress lines'() {
+        const { describeEvent } = require('./aidlc-run');
+        const line = JSON.stringify({
+            type: 'assistant',
+            message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/p/force-app/x.cls' } }] }
+        });
+        assert.strictEqual(describeEvent(line, '/p'), 'Writing force-app/x.cls');
+        assert.strictEqual(describeEvent(JSON.stringify({ type: 'system' }), '/p'), null);
+        assert.strictEqual(describeEvent('plain text', '/p'), 'plain text');
+    }
+});
+
+(async () => {
+    let failed = 0;
+    for (const [name, fn] of Object.entries(tests)) {
+        try {
+            await fn();
+            console.log(`  ok  ${name}`);
+        } catch (e) {
+            failed++;
+            console.log(`  FAIL ${name}\n       ${String(e.stack || e.message).split('\n').join('\n       ')}`);
+        }
+    }
+    console.log(`\n${Object.keys(tests).length - failed}/${Object.keys(tests).length} passed`);
+    process.exit(failed ? 1 : 0);
+})();

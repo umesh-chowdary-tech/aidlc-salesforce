@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="aidlc-token" content="__AIDLC_TOKEN__">
+    <title>AI-DLC Builder</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/vendor/marked.js" defer></script>
+    <script src="/app.js" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="logo" aria-hidden="true">◆</span>
+            <span>AI-DLC Builder</span>
+        </div>
+        <div id="org-badge" class="org-badge" hidden></div>
+    </header>
+
+    <nav class="steps" aria-label="Progress">
+        <ol id="steps">
+            <li data-step="connect">Connect</li>
+            <li data-step="describe">Describe</li>
+            <li data-step="plan">Agree the plan</li>
+            <li data-step="build">Build</li>
+            <li data-step="install">Install</li>
+            <li data-step="check">Check it</li>
+        </ol>
+    </nav>
+
+    <main class="layout">
+        <section id="main" class="panel main-panel" aria-live="polite">
+            <p class="muted">Loading…</p>
+        </section>
+
+        <aside class="panel side-panel">
+            <div class="side-head">
+                <h2>What the agent is doing</h2>
+                <label class="toggle"><input type="checkbox" id="show-details"> Show details</label>
+            </div>
+            <ol id="activity" class="activity"></ol>
+            <details class="docs">
+                <summary>Documents</summary>
+                <ul id="documents"></ul>
+            </details>
+        </aside>
+    </main>
+
+    <dialog id="doc-dialog">
+        <div class="dialog-head">
+            <h2 id="doc-title"></h2>
+            <button type="button" class="button ghost" id="doc-close">Close</button>
+        </div>
+        <div id="doc-body" class="markdown"></div>
+    </dialog>
+</body>
+</html>
