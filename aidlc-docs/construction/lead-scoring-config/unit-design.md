@@ -120,11 +120,14 @@ If a rule does not apply or is broken on purpose, say why next to it.
 - [ ] 2. Bulk-safe, no SOQL or DML in loops, tested with 200 records. Does not apply: this unit has no Apex. The 200-record test belongs to unit 2.
 - [ ] 3. Classes declare `with sharing`. Does not apply: no classes.
 - [ ] 4. CRUD and FLS enforced for user-facing data access. Does not apply: no code reads data. Field-level security on `Score__c` is granted only by the permission set.
-- [ ] 5. Configuration in custom metadata, no hard-coded values or IDs
+- [x] 5. Configuration in custom metadata, no hard-coded values or IDs. Rule fields, operators, values, points and the on/off switch are all `Lead_Scoring_Rule__mdt` records; no IDs appear in the source.
 - [ ] 6. Tests assert, include a bulk test, target 90% coverage. Does not apply: no Apex to test or cover. The unit is checked by the structural conversion and by the manual checks in the test plan.
 - [ ] 7. LWC handles errors and has Jest tests. Does not apply: no LWC.
-- [ ] 8. Access granted by permission set
-- [ ] 9. Source-format metadata only, manual steps written in README
+- [x] 8. Access granted by permission set. `Lead_Scoring_User` grants read on `Lead.Score__c`; `force-app/` contains no profile file.
+- [x] 9. Source-format metadata only, manual steps written in README. All 13 files are SFDX source format; the permission set assignment is in the README section "Lead scoring demo: setup after deployment".
+
+Rules 1, 2, 3, 4, 6 and 7 are left unticked because they do not apply to a
+metadata-only unit, not because they were broken.
 
 No guardrail is set aside in this unit.
 
@@ -132,4 +135,29 @@ No guardrail is set aside in this unit.
 <!-- Filled in after the build: each command run and its result. State plainly
      anything that could not be run locally (Apex tests need an org). -->
 
-Not yet built. To be filled in after the design is approved.
+Built on 2026-11-12 after the design-approval gate (auto). Thirteen metadata
+files were written under `force-app/main/default/` and one section was added
+to `README.md`.
+
+Tests first: the test plan has no Apex or Jest tests for this unit, so there
+was no failing test to write before the metadata.
+
+| Check | Command or method | Result |
+|---|---|---|
+| Source converts | `sf project convert source --root-dir force-app --output-dir <temp dir>` | Passed. Output: "Source was successfully converted to Metadata API format". |
+| Converted manifest lists the expected components | Read the generated `package.xml` | Passed. It lists CustomField `Lead.Score__c` and the five `Lead_Scoring_Rule__mdt.*` fields, CustomMetadata `Lead_Scoring_Rule.Email_Not_Blank`, `.Employees_Greater_Than_100`, `.Industry_Equals_Technology`, `.Phone_Not_Blank`, `.Revenue_Greater_Than_1000000`, CustomObject `Lead_Scoring_Rule__mdt`, PermissionSet `Lead_Scoring_User`, version 68.0, and nothing else. |
+| API version matches | Search of `force-app/` for `apiVersion` | Passed, with a note: no file in this unit carries an `apiVersion` element (fields, custom metadata types, records and permission sets do not have one), so the search finds no version at all. The version comes from `sourceApiVersion` 68.0 in `sfdx-project.json`, which the converted manifest shows. |
+| No profile metadata | Search of `force-app/` for `*.profile-meta.xml` | Passed. No such file. |
+| Jest | `npm run test:unit` | Exit 0, "No tests found, exiting with code 0". There are no LWC components yet, so this shows only that nothing is broken. |
+| Lint | `npm run lint` | Exit 0, no output. There is no LWC JavaScript to lint yet. |
+| Code Analyzer | `sf code-analyzer run --workspace force-app --rule-selector Recommended` | Not run: the `code-analyzer` plugin is not installed (`sf plugins` reports "No plugins installed"). The guardrails were checked by reading the 13 files instead; the unit has no Apex or JavaScript for the analyzer to inspect. |
+
+Not verified locally, and why:
+
+- Whether the org accepts the metadata. The conversion checks file placement
+  and well-formed XML, not the platform's own validation (for example the
+  restricted picklist on a custom metadata type, or the record values). That
+  is first checked by the validation run in Operations.
+- Every "Manual" row in the test plan. They need an org and are done in
+  Operations.
+- Apex tests: there are none in this unit.

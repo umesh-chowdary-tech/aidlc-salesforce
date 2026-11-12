@@ -11,3 +11,7 @@ Auto-approved by the runner (--auto). The human chose automatic approval when st
 ## 2026-11-12T03:19:11Z design-approval lead-scoring-config (auto)
 
 Auto-approved by the runner (--auto). The human chose automatic approval when starting this run.
+
+## 2026-11-12T03:20:21Z unit-approval lead-scoring-config (auto)
+
+Auto-approved by the runner (--auto). The human chose automatic approval when starting this run.
