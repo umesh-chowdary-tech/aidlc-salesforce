@@ -76,6 +76,7 @@ function snapshot() {
         busy: ui.busy,
         pending,
         documents: available,
+        requirement: docs.readRequirement(ROOT),
         acceptance: acceptanceResult(),
         allowProduction: ALLOW_PRODUCTION
     };

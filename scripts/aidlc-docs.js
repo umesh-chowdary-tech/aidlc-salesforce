@@ -134,6 +134,21 @@ function readChecklist(root) {
     return (text.match(/^- \[[ xX]\] .+$/gm) || []).map((l) => l.replace(/^- \[[ xX]\] /, '').trim());
 }
 
+// The requirement in the requester's words, from the Intent section of
+// aidlc-docs/inception/intent.md: its quoted lines if it has any, otherwise
+// its first paragraph. Empty when there is no intent yet.
+function readRequirement(root) {
+    const text = readIf(path.join(root, 'aidlc-docs', 'inception', 'intent.md'));
+    const section = (text.split(/^## Intent\s*$/m)[1] || '').split(/^## /m)[0].replace(/<!--[\s\S]*?-->/g, '');
+    const quoted = section
+        .split('\n')
+        .filter((l) => /^>\s?/.test(l))
+        .map((l) => l.replace(/^>\s?/, '').trim());
+    if (quoted.length) return quoted.join(' ').replace(/\s+/g, ' ').trim();
+    const paragraph = section.trim().split(/\n\s*\n/)[0] || '';
+    return paragraph.replace(/\s+/g, ' ').trim();
+}
+
 function appendAudit(root, event, words) {
     const file = path.join(root, 'aidlc-docs', 'audit.md');
     const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -149,5 +164,6 @@ module.exports = {
     pendingQuestions,
     writeAnswers,
     readChecklist,
+    readRequirement,
     appendAudit
 };

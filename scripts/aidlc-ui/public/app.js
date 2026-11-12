@@ -169,6 +169,22 @@
         orgBadge.title = s.org.username || '';
     }
 
+    function renderRequirement(s) {
+        const box = document.getElementById('requirement');
+        box.hidden = !s.requirement;
+        document.getElementById('requirement-text').textContent = s.requirement || '';
+    }
+
+    const STEP_TEXT = {
+        connect: 'connecting to Salesforce',
+        describe: 'describing the requirement',
+        plan: 'agreeing the plan: the agent may have questions, then you approve the user stories',
+        build: 'building: the agent designs, builds and tests each part',
+        install: 'installing: the agent checks the installation in your org, then asks you to approve it',
+        check: 'checking: you try the feature in Salesforce and say whether it works',
+        finished: 'finished'
+    };
+
     function renderDocuments(s) {
         documentsList.replaceChildren(
             ...Object.entries(DOC_LABELS)
@@ -458,13 +474,16 @@
     }
 
     function viewResume(s) {
-        const go = h('button', { class: 'button', type: 'button' }, 'Continue');
+        const go = h('button', { class: 'button', type: 'button' }, s.requirement ? 'Continue this requirement' : 'Continue');
         go.addEventListener('click', () => act(go, '/api/run/start', {}));
         return [
-            h('h1', {}, 'Pick up where you left off'),
-            h('p', {}, `The work is at the "${currentStep(s)}" step.`),
-            h('p', { class: 'muted' }, s.state.nextStep),
-            h('div', { class: 'actions' }, go, newRequirementButton('ghost'))
+            h('h1', {}, 'A requirement is already in progress'),
+            s.requirement
+                ? [h('p', {}, 'The agent was working on this:'), h('blockquote', { class: 'big' }, s.requirement)]
+                : h('p', {}, 'The agent was part-way through a piece of work.'),
+            h('p', {}, h('strong', {}, 'Where it stopped: '), STEP_TEXT[currentStep(s)] || currentStep(s), '.'),
+            h('p', { class: 'muted' }, 'Continue to finish it, or start a new requirement to describe something else. Starting new keeps everything already built; the documents for this one are archived.'),
+            h('div', { class: 'actions' }, go, newRequirementButton('secondary'))
         ];
     }
 
@@ -500,6 +519,7 @@
         if (!s) return;
         renderSteps(s);
         renderOrgBadge(s);
+        renderRequirement(s);
         renderDocuments(s);
         const key = viewKey(s);
         if (!force && key === currentView) {

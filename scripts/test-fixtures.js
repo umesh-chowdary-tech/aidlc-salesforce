@@ -30,6 +30,8 @@ if (rejected) {
   fs.writeFileSync(path.join(root, 'checks-ok'), '1');
 } else if (cmd === 'aidlc-inception' && !approved) {
   fs.mkdirSync(path.join(root, 'aidlc-docs/inception'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'aidlc-docs/inception/intent.md'),
+    '# Intent\\n\\n## Intent\\n\\n> ' + arg + '\\n\\n## Who it is for\\n\\nSales reps.\\n');
   const qFile = path.join(root, 'aidlc-docs/inception/questions.md');
   if (process.env.FAKE_QUESTIONS && !fs.existsSync(qFile)) {
     fs.writeFileSync(qFile, '# Questions\\n\\n## 1. Who uses it?\\n\\n- A. Sales reps (Recommended)\\n- B. Admins\\n\\nAnswer:\\n');

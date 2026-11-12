@@ -139,6 +139,7 @@ async function browserFlow(url, project, shots) {
         await page.getByRole('button', { name: 'Start' }).click();
 
         await heading('A few questions');
+        assert.match(await page.locator('#requirement-text').textContent(), /Score each Lead/, 'requirement shown while working');
         assert.ok(await page.locator('.badge', { hasText: 'Recommended' }).isVisible(), 'recommended option is marked');
         await shot('questions');
         await page.getByRole('button', { name: 'Send answers' }).click();
@@ -172,6 +173,13 @@ async function browserFlow(url, project, shots) {
         await page.getByRole('button', { name: 'View the audit trail' }).click();
         await page.locator('#doc-body').getByText('acceptance (changes requested)').waitFor();
         await shot('done-audit');
+        await page.getByRole('button', { name: 'Close' }).click();
+
+        // Starting over: the old requirement is archived and the box is back.
+        page.once('dialog', (d) => d.accept());
+        await page.getByRole('button', { name: 'Start a new requirement' }).click();
+        await heading('What do you need?');
+        assert.ok(await page.locator('#requirement').isHidden(), 'no requirement shown for a fresh start');
         assert.deepStrictEqual(errors, [], 'no browser errors');
     } finally {
         await browser.close();
@@ -180,11 +188,18 @@ async function browserFlow(url, project, shots) {
     const audit = fs.readFileSync(path.join(project.dir, 'aidlc-docs/audit.md'), 'utf8');
     assert.match(audit, /answers aidlc-docs\/inception\/questions\.md\n\n1\. A\. Sales reps/);
     assert.match(audit, /\(changes requested\)\n\n- Yes: Open a Lead[^\n]*\n- No: Save it -> the score updates \(The score stayed at 40 after I saved\.\)/);
-    assert.match(fs.readFileSync(path.join(project.dir, 'aidlc-docs/operations/acceptance.md'), 'utf8'), /^Result: accepted$/m);
+    // "Start a new requirement" archived the finished run.
+    const archives = fs.readdirSync(path.join(project.dir, 'aidlc-docs/archive'));
+    assert.strictEqual(archives.length, 1);
+    const archived = path.join(project.dir, 'aidlc-docs/archive', archives[0]);
+    assert.match(fs.readFileSync(path.join(archived, 'operations/acceptance.md'), 'utf8'), /^Result: accepted$/m);
+    assert.ok(!fs.existsSync(path.join(project.dir, 'aidlc-docs/inception')), 'inception docs moved to the archive');
+    assert.match(fs.readFileSync(path.join(project.dir, 'aidlc-docs/state.md'), 'utf8'), /^phase: not-started$/m);
+    assert.match(audit, /new-requirement\n\nThe previous run's artifacts were archived/);
     const calls = fs.readFileSync(path.join(project.dir, 'calls.log'), 'utf8');
     assert.match(calls, /aidlc-operations\|acme-dev\|deploy-approval\|approve\|human/);
     assert.match(calls, /aidlc-fix\|acme-dev\|/);
-    console.log('  ok  browser walk-through: connect, describe, questions, plan, install, failed check, fix, install, accept');
+    console.log('  ok  browser walk-through: connect, describe, questions, plan, install, failed check, fix, install, accept, start a new requirement');
 }
 
 (async () => {

@@ -221,6 +221,16 @@ Object.assign(tests, {
         assert.strictEqual(qs[0].answer, '');
         assert.strictEqual(qs[1].answer, 'A');
     },
+    'the requirement is read from the intent in the requester\'s words'() {
+        const pr = makeProject();
+        fs.mkdirSync(path.join(pr.dir, 'aidlc-docs/inception'), { recursive: true });
+        fs.writeFileSync(
+            path.join(pr.dir, 'aidlc-docs/inception/intent.md'),
+            '# Intent\n\n## Intent\n\nIn the requester\'s words:\n\n> Score each Lead\n> from 0 to 100.\n\n## Who it is for\n\nReps.\n'
+        );
+        assert.strictEqual(docs.readRequirement(pr.dir), 'Score each Lead from 0 to 100.');
+        assert.strictEqual(docs.readRequirement(makeProject().dir), '');
+    },
     'agent stream events become readable progress lines'() {
         const { describeEvent } = require('./aidlc-run');
         const line = JSON.stringify({
