@@ -58,6 +58,18 @@ You can also run the phases yourself inside Claude Code.
 At each gate Claude stops and tells you which files to review. Reply with
 your approval or the changes you want.
 
+## Lead scoring demo: setup after deployment
+
+These steps cannot be deployed from source. Do them once in each org after
+the deployment.
+
+1. Assign the `Lead_Scoring_User` permission set to each sales rep. Without
+   it a rep cannot see the Score field on a Lead. Either:
+   - in Setup, go to Users > Permission Sets > Lead Scoring User > Manage
+     Assignments and add the users; or
+   - run `sf org assign permset --name Lead_Scoring_User --target-org my-org`
+     (add `--on-behalf-of <username>` to assign it to someone else).
+
 ## What is in the kit
 
 | Path | Purpose |

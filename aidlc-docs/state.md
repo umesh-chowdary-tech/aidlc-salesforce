@@ -1,9 +1,9 @@
 # AI-DLC state
 
-phase: not-started
-unit: -
+phase: construction
+unit: lead-scoring-config
 pending_gate: none
-next_step: Run /aidlc-inception with a one-paragraph intent.
+next_step: Build and locally verify unit lead-scoring-config.
 
 ## Approved units
 
