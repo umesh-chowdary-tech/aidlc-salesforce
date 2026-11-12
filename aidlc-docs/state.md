@@ -1,12 +1,13 @@
 # AI-DLC state
 
 phase: construction
-unit: lead-score-breakdown
-pending_gate: unit-approval
-next_step: Human reviews the built unit lead-score-breakdown.
+unit: -
+pending_gate: none
+next_step: Run /aidlc-operations.
 
 ## Approved units
 
 <!-- One line per unit whose unit-approval gate has passed, as "- <slug>". -->
 - lead-scoring-config
 - lead-scoring-engine
+- lead-score-breakdown
